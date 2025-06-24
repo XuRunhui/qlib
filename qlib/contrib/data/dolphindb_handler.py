@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 from typing import Union, List
 from qlib.log import get_module_logger
-
+import os 
 class DolphinDBHandler:
     """DolphinDB数据处理器 - 独立实现"""
     
@@ -80,7 +80,7 @@ class DolphinDBHandler:
                 instruments = list(result)
             
             self.logger.info(f"获取到{len(instruments)}只股票")
-            return instruments[:50]  # 限制数量
+            return instruments  # 限制数量
             
         except Exception as e:
             self.logger.error(f"获取股票列表失败: {e}")
@@ -106,6 +106,10 @@ class DolphinDBHandler:
             'adjhigh': 'S_DQ_ADJHIGH',         # 复权最高价
             'adjlow': 'S_DQ_ADJLOW',           # 复权最低价
             'adjfactor': 'S_DQ_ADJFACTOR',     # 复权因子
+            'limit': 'S_DQ_LIMIT',
+            "stopping": "S_DQ_STOPPING",
+            "backward": "S_DQ_ADJCLOSE_BACKWARD",
+            "adjaverage": "S_DQ_AVGPRICE"
         }
         
         self.logger.info(f"Wind数据列名映射: {mapping}")
@@ -154,16 +158,16 @@ class DolphinDBHandler:
                 f"{column_mapping['pctchange']} as pctchange",  # 可以直接使用涨跌幅
                 f"{column_mapping['adjclose']} as adjclose"     # 复权价格
             ]
-
+            select_cols = [f"{column_mapping[col]} as {col}" for col in column_mapping]
             # 构建股票代码字符串
             instruments_str = "'" + "','".join(self.instruments) + "'"
             select_str = ", ".join(select_cols)
             
             # 构建查询语句
             # script = f""" select {select_str} from loadTable('dfs://wind', 'ASHAREEODPRICES') where S_INFO_WINDCODEE in ({instruments_str}) and TRADE_DT between '{self.start_time}' : '{self.end_time}' order by S_INFO_WINDCODEE, TRADE_DT """
-            
+            #  where {column_mapping['symbol']} in ({instruments_str}) and {column_mapping['date']} between '{self.start_time}' : '{self.end_time}' 
             # 构建查询语句
-            script = f""" select {select_str} from loadTable("{self.database}", "{self.table}") where {column_mapping['symbol']} in ({instruments_str}) and {column_mapping['date']} between '{self.start_time}' : '{self.end_time}' order by {column_mapping['symbol']}, {column_mapping['date']} """
+            script = f""" select {select_str} from loadTable("{self.database}", "{self.table}") order by {column_mapping['symbol']}, {column_mapping['date']} """
             
             self.logger.info(f"执行DolphinDB查询SQL:\n{script}")
             result = self.session.run(script)
@@ -187,6 +191,15 @@ class DolphinDBHandler:
                 return pd.DataFrame()
             
             self.logger.info(f"成功获取数据: {len(df)}条记录")
+            # if already exists
+            if not os.path.exists("stock_data.csv"):
+                df.to_csv(
+                    'stock_data.csv',
+                    index=True,              # 不保存pandas索引
+                    encoding='utf-8',         # UTF-8编码
+                    float_format='%.5f',      # 价格保留4位小数
+                    date_format='%Y-%m-%d'    # 日期格式
+                )
             return df
                 
         except Exception as e:
