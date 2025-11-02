@@ -50,3 +50,11 @@ tags
 ./pretrain
 .idea/
 .aider*
+
+# Data download logs and temporary files
+download_log.txt
+investment_signals_latest.csv
+
+# Downloaded raw data
+.qlib/yahoo_data_raw/
+.qlib/yahoo_data_normalized/
