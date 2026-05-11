@@ -1,0 +1,47 @@
+---
+date: 2025-12-03
+ticker: COHR
+case_type: consensus_buy
+model_rank: 4
+model_score: 0.4120
+model_action: BUY
+news_sentiment: POS
+news_published_count_5d: 1
+news_pos_count_5d: 1
+news_neg_count_5d: 0
+most_recent_published_utc: 2025-12-03T19:03:00Z
+pub_lag_days: -0.79
+pub_hour_utc: 19
+rule_avoid_high_precision: False
+rule_buy_high_precision: False
+sector: Manufacturing
+ret_5d_pre_pct: 14.85
+ret_20d_pre_pct: 32.84
+ann_vol_20d_pct: 98
+close: 170.96
+sector_concentration_top30_pct: 73
+top_score_of_day: 0.4319
+spy_close: 683.89
+spy_above_200ma_pct: 10.82
+spy_vol_20d_pct: 14.5
+ret_1d_pct: 2.50
+ret_3d_pct: 8.67
+ret_5d_pct: 11.93
+verdict: both_won
+---
+
+# Case: COHR on 2025-12-03 — consensus_buy
+
+## Polygon catalyst
+**Title:** The AI Boom Is Fueling an Unlikely Stock Rally—And 3 Companies Are Leading
+
+**Reasoning:** 72% YTD performance, 17.3% revenue growth, beating earnings estimates, and continued strength from AI data center customers
+
+**Published:** 2025-12-03T19:03:00Z
+**Keywords:** AI, optical networking, communication technology, data centers, infrastructure
+
+## Codex narrative
+The catalyst was bullish: 72% YTD performance, 17.3% revenue growth, beating earnings estimates, and continued strength from AI data center customers. The BUY was a technical strength call with high-score day, high-vol name, heavy sector tilt, and the +11.93% 5d move looks event-driven, so the news catalyst dominated the technical setup.
+
+## Lesson tag
+news_event_dominated

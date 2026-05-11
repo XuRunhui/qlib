@@ -1,0 +1,47 @@
+---
+date: 2026-03-20
+ticker: CF
+case_type: consensus_buy
+model_rank: 1
+model_score: 0.3627
+model_action: BUY
+news_sentiment: POS
+news_published_count_5d: 5
+news_pos_count_5d: 3
+news_neg_count_5d: 1
+most_recent_published_utc: 2026-03-19T16:02:00Z
+pub_lag_days: 0.33
+pub_hour_utc: 16
+rule_avoid_high_precision: False
+rule_buy_high_precision: True
+sector: Manufacturing
+ret_5d_pre_pct: -3.60
+ret_20d_pre_pct: 28.52
+ann_vol_20d_pct: 73
+close: 124.90
+sector_concentration_top30_pct: 63
+top_score_of_day: 0.3627
+spy_close: 648.57
+spy_above_200ma_pct: -1.79
+spy_vol_20d_pct: 13.6
+ret_1d_pct: 5.61
+ret_3d_pct: 10.30
+ret_5d_pct: 14.49
+verdict: both_won
+---
+
+# Case: CF on 2026-03-20 — consensus_buy
+
+## Polygon catalyst
+**Title:** Not Just Oil: 3 Fertilizer Stocks Boosted by Hormuz Closure
+
+**Reasoning:** Pure-play nitrogen producer with structural advantage from affordable U.S. natural gas. Can offer competitive prices globally while expanding margins due to low input costs versus European and Asian competitors. Up 60% YTD with strong bullish technical momentum and sustained nitrogen price catalysts.
+
+**Published:** 2026-03-19T16:02:00Z
+**Keywords:** Strait of Hormuz closure, fertilizer shortage, nitrogen fertilizers, potash, phosphate
+
+## Codex narrative
+The structured news fields show recent coverage, but the catalyst text is unavailable. The BUY was a technical strength call with heavy sector tilt, and the +14.49% 5d gain shows consensus worked, though news may have added little beyond the technical rank.
+
+## Lesson tag
+consensus_long_worked

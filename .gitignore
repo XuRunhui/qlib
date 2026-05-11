@@ -51,3 +51,40 @@ tags
 ./pretrain
 .idea/
 .aider*
+
+# us_pipeline data & artifacts that should NOT be in git
+# (regenerable from polygon API OR available in the us_pipeline_data.tar.gz archive)
+us_pipeline/data/news/
+us_pipeline/data/fundamentals/
+us_pipeline/data/raw/
+us_pipeline/data/qlib_bin/
+us_pipeline/data/_staged_csv/
+us_pipeline/data/*.parquet
+us_pipeline/data/news_download.log
+us_pipeline/data/backfill_log.txt
+us_pipeline/data/build_cases_log.txt
+us_pipeline/data/exp5_log.txt
+us_pipeline/data/exp7_log.txt
+us_pipeline/data/download.log
+
+# Stray top-level junk
+/IMG_*.png
+/download_log.txt
+/experiment_run.log
+/fresh_predictions.log
+/logs/
+
+# But DO include us_pipeline text artifacts (override the global *.csv block)
+!us_pipeline/data/instruments/*.csv
+!us_pipeline/data/instruments/*.txt
+!us_pipeline/signals/*.csv
+!us_pipeline/data/pick_overlap.csv
+!us_pipeline/data/sector_concentration_hhi.csv
+!us_pipeline/data/circuit_breaker_*.csv
+!us_pipeline/data/earnings_calendar.csv
+!us_pipeline/data/cohort_overheat_l65_backtest.csv
+!us_pipeline/data/legal_veto_proxy_spotcheck.csv
+!us_pipeline/data/exp4_results.csv
+!us_pipeline/data/exp5_walkforward_results.csv
+!us_pipeline/data/sweep_final_results.csv
+!us_pipeline/data/paper_trade_log/*.csv
