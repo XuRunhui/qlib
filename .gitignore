@@ -60,6 +60,8 @@ us_pipeline/data/raw/
 us_pipeline/data/qlib_bin/
 us_pipeline/data/_staged_csv/
 us_pipeline/data/*.parquet
+us_pipeline/data/intraday_cache/
+node_modules/
 us_pipeline/data/news_download.log
 us_pipeline/data/backfill_log.txt
 us_pipeline/data/build_cases_log.txt
@@ -82,6 +84,11 @@ us_pipeline/data/download.log
 !us_pipeline/data/sector_concentration_hhi.csv
 !us_pipeline/data/circuit_breaker_*.csv
 !us_pipeline/data/earnings_calendar.csv
+
+# ...except the wide chart-app universe: 11k rows, rebuilt in ~2min by
+# `fetch_sectors.py --universe all`, and refreshing it churns the whole file.
+# Must sit after the !instruments/*.csv negation above — last match wins.
+us_pipeline/data/instruments/sectors_all.csv
 !us_pipeline/data/cohort_overheat_l65_backtest.csv
 !us_pipeline/data/legal_veto_proxy_spotcheck.csv
 !us_pipeline/data/exp4_results.csv

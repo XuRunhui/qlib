@@ -13,16 +13,15 @@ Behavior:
 from __future__ import annotations
 
 import argparse
-import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
-from dotenv import load_dotenv
 from polygon import RESTClient
-from polygon.exceptions import BadResponse
+
+from polygon_client import TickerNotFound, fetch_aggs, get_client
 
 ROOT = Path(__file__).parent
 RAW_DIR = ROOT / "data" / "raw"
@@ -67,34 +66,12 @@ def fetch_one(
     if fetch_start > end:
         return ticker, 0, "up-to-date"
 
-    last_err = None
-    for attempt in range(retries):
-        try:
-            # Polygon's REST list_aggs auto-paginates.
-            bars = list(
-                client.list_aggs(
-                    ticker=ticker,
-                    multiplier=1,
-                    timespan="day",
-                    from_=fetch_start,
-                    to=end,
-                    adjusted=True,
-                    sort="asc",
-                    limit=50000,
-                )
-            )
-            break
-        except BadResponse as e:
-            # 404 / no data for this ticker on this range — treat as empty.
-            msg = str(e)
-            if "NOT_FOUND" in msg or "404" in msg:
-                return ticker, 0, "not-found"
-            last_err = e
-        except Exception as e:
-            last_err = e
-        time.sleep(2 ** attempt)
-    else:
-        return ticker, 0, f"error: {last_err}"
+    try:
+        bars = fetch_aggs(client, ticker, 1, "day", fetch_start, end, retries=retries)
+    except TickerNotFound:
+        return ticker, 0, "not-found"
+    except Exception as e:
+        return ticker, 0, f"error: {e}"
 
     if not bars:
         return ticker, 0, "no-new-bars"
@@ -133,10 +110,7 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=None, help="only download first N tickers (debug)")
     args = parser.parse_args()
 
-    load_dotenv(ROOT.parent / ".env")
-    api_key = os.environ.get("POLYGON_API_KEY")
-    if not api_key:
-        raise SystemExit("POLYGON_API_KEY not set in environment or .env")
+    client = get_client()
 
     RAW_DIR.mkdir(parents=True, exist_ok=True)
     tickers = load_universe(args.universe)
@@ -144,7 +118,6 @@ def main() -> None:
         tickers = tickers[: args.limit]
     print(f"Downloading {len(tickers)} tickers from {args.start} to {args.end} -> {RAW_DIR}")
 
-    client = RESTClient(api_key)
     stats = {"ok": 0, "up-to-date": 0, "no-new-bars": 0, "not-found": 0, "error": 0}
     total_rows = 0
     t0 = time.time()

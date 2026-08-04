@@ -37,8 +37,11 @@
 ```
 us_pipeline/
 ├── universe.py                  # S&P 500 ticker scraper
+├── polygon_client.py            # Shared Polygon access: get_client() + fetch_aggs() w/ retry
 ├── download_polygon.py          # Polygon EOD downloader (resumable)
 ├── fetch_sectors.py             # SIC-code-based sector classifier
+│                                #   sic_to_sector()          -> 9 SIC divisions (modeling; do not change)
+│                                #   sic_to_display_sector()  -> 11 GICS-like buckets (chart app)
 ├── to_qlib_bin.py               # CSV → Qlib bin conversion
 ├── sector_processor.py          # Custom Qlib processor: sector-neutral rank
 ├── lgb_rank_model.py            # Custom Qlib model: LightGBM LambdaRank
@@ -74,10 +77,22 @@ us_pipeline/
 │   ├── cases/                   # One .md per (date, ticker) case
 │   │   └── <YYYY-MM-DD>__<TICKER>__<case_type>.md
 │   └── patterns/                # Promoted findings (5+ supporting cases)
+├── viz/                         # ⭐ Interactive price-chart app (brokerage-style)
+│   ├── server.py                # FastAPI: /api/search, /api/bars, /api/movers, disk cache, bundle
+│   └── frontend/                # Vite + React 19 (plain JS)
+│       ├── vite.config.js       # dev server :5173, proxies /api → :8002
+│       └── src/
+│           ├── App.jsx          # Chart/Sectors switch, range pills, custom date picker
+│           ├── Chart.jsx        # lightweight-charts area series, ET axis, baseline line
+│           ├── Sectors.jsx      # sector tabs + sortable return leaderboard
+│           ├── SearchBox.jsx    # debounced symbol search
+│           └── index.css        # dark theme
 └── data/
     ├── instruments/
     │   ├── sp500.txt            # 503 current S&P 500 tickers
-    │   └── sectors.csv          # SIC code + 9-bucket sector mapping
+    │   ├── sectors.csv          # SIC code + 9-bucket sector mapping (modeling)
+    │   └── sectors_all.csv      # 11,010 US stocks/ADRs/ETFs for the chart app
+    │                            #   (gitignored; rebuild in ~2min, see below)
     ├── raw/                     # 504 CSVs (S&P 500 + SPY/RSP/QQQ benchmarks)
     ├── qlib_bin/                # Qlib binary data (~150MB)
     ├── fundamentals/            # 503 JSON files of raw quarterly financials (Exp 4)
@@ -87,6 +102,10 @@ us_pipeline/
     ├── paper_trade_log/         # Live signal scoring (Exp 6)
     │   ├── trades.csv           # Per-pick log: signal_date, rank, ret_1d/3d/5d
     │   └── summary.md           # Aggregate performance summary
+    ├── intraday_cache/          # viz/ app response cache (gitignored, regenerable)
+    │   ├── <TICKER>/<span>_<mult>_<from>_<to>.json
+    │   ├── _grouped/<date>.json # whole-market daily bars, ~1.35MB per session
+    │   └── _renames/timeline.json  # ticker-change history, for the rename filter
     ├── exp4_results.csv         # Single-window fundamentals comparison
     ├── exp5_walkforward_results.csv  # 4 variants × 12 months
     └── sweep_final_results.csv  # Earlier sweeps
@@ -126,6 +145,93 @@ Read the full protocol at [`coordination/README.md`](coordination/README.md). Wh
 - Notes are **preserved across regeneration** — re-running `daily_journal.py` only updates auto-fields, never overwrites your manual annotations
 - After 30+ entries, run a meta-analysis script to find correlations between signal characteristics and realized performance (this already revealed a tentative negative correlation between model confidence and realized L-S spread in the first 7 days — pattern to watch).
 
+### Chart app (`viz/`) — brokerage-style price viewer
+
+An interactive price chart in the style of Robinhood/Chase, for eyeballing any US ticker at any granularity. Independent of the modeling pipeline — it reads Polygon directly rather than the Qlib binary store, so it is never limited to the S&P 500 universe or to daily bars.
+
+**Run it:**
+```bash
+# backend — from us_pipeline/viz/
+../../.venv/bin/uvicorn server:app --reload --port 8002
+
+# frontend dev server (hot reload), from us_pipeline/viz/frontend/
+npm install        # first time only
+npm run dev        # http://localhost:5173, proxies /api to :8002
+```
+For a single process, `npm run build` then open **http://127.0.0.1:8002** — `server.py` serves `frontend/dist/` when it exists. Port 8002 rather than 8000/8001 because both were already occupied on this box; change it in `server.py` and `vite.config.js` together.
+
+Two views, switched from the top bar: **Chart** (one ticker, any granularity) and **Sectors** (S&P 500 return leaderboard grouped by sector). Clicking any row in Sectors opens that ticker in Chart.
+
+**Endpoints:**
+
+| Route | Returns |
+|---|---|
+| `GET /api/search?q=appl` | Symbol suggestions — ticker, company name, exchange |
+| `GET /api/bars?ticker=AAPL&range=1D` | Bars + header stats for one chart |
+| `GET /api/bars?ticker=AAPL&from=…&to=…` | Same, for a custom date range |
+| `GET /api/movers?range=1M&universe=sp500\|all&liquid=true` | Return leaderboard with sector, price, % change, volume |
+
+**Range → aggregation** (each pill is one API call; verified bar counts for AAPL):
+
+| Pill | Aggregation | Session | Bars |
+|---|---|---|---|
+| 1D | 1-minute | extended, 04:00–19:59 ET | ~960 |
+| 1W | 5-minute | regular only, 5 sessions | ~390 |
+| 1M | 30-minute | regular only | ~300 |
+| 3M / 1Y / MAX | daily | — | 64 / 252 / 1255 |
+| Custom | auto by span: ≤1d → 1-min, ≤7d → 5-min, ≤35d → 30-min, else daily | regular unless ≤1 day | — |
+
+**Design notes:**
+- **Headline price is the official daily close, identical on every pill.** It deliberately does *not* come from the chart series, because the last bar of a series means a different thing in each aggregation. Measured on AAPL 2026-07-31: the 1-minute extended series ends on the 19:59 post-market print ($307.36), the regular-session intraday series ends on the last continuous trade at 15:59 ($309.03), and the daily bar carries the 16:00 closing auction ($308.91). Reading `bars[-1]` — the first implementation — showed three prices for one stock depending on which pill was selected, and overstated the day's decline by folding the after-hours drift into it (−7.82% vs the correct −7.35%). `get_quote()` in `server.py` now sources the header independently.
+- **After-hours is its own line**, never folded into the day's change — price plus its own % move against the close. Omitted when the session has no post-market prints (common on thin names).
+- **Only the change follows the range.** Price is constant across pills; the change is measured from that range's baseline, so 1D reads as today's move and 1Y as the year's.
+- **Baseline** (dashed line, and what the % change is measured against) is the *previous session's close* on 1D — matching how brokers quote "today's change" — and the *first close in the window* on every longer range.
+- **Cache:** every Polygon response is written to `data/intraday_cache/`. Windows that ended in the past never change → cached forever; any window touching today expires after 5 minutes, which is well inside the tier's 15-minute delay. Cold request ~0.65s, warm ~0.10s.
+- **Hover** tracks the cursor in the header price, like a broker app. Green/red follows the sign of the change.
+- **Not implemented:** pre/post-market shading on the 1D chart. `lightweight-charts` has no vertical-band API without a custom plugin. The server already returns a `regular: {start, end}` field for it, so the data side is ready.
+
+#### Sector leaderboard
+
+Sector tabs ranked by return across the same 1D–MAX pills. Columns (symbol, industry, price, change, volume) are click-to-sort; default is change descending, one click flips to ascending for the biggest decliners.
+
+**Two universes**, switched with a segmented control; opens on S&P 500:
+
+| Universe | Source | Names |
+|---|---|---|
+| S&P 500 | `sp500.txt` membership | 500 ranked (3 absent from the grouped feed) |
+| All stocks | every active US `CS` + `ADRC` + `ETF` | 10,617 ranked, 3,298 above the liquidity floor |
+
+A **liquidity toggle** (price > $5 *and* dollar volume > $10M, on by default) is applied server-side so the default payload stays small — 96 KB for the S&P, 601 KB for all-liquid, 1.9 MB when the filter is switched off. Without it the daily % board is entirely sub-dollar stocks moving on a few thousand shares. ETFs get their own tab rather than being mixed into sectors, since they have no meaningful SIC code.
+
+**Building the wide universe** (~2 min, 11,010 tickers):
+```bash
+python us_pipeline/fetch_sectors.py --universe all     # -> data/instruments/sectors_all.csv
+```
+`sectors_all.csv` is gitignored (regenerable, and refreshing it churns 11k lines). The server falls back to the S&P-only `sectors.csv` when it is absent, so the app runs before the backfill. Rebuild it when the listed universe drifts.
+
+The list endpoint (`/v3/reference/tickers`) carries `type` and `name` in a handful of cheap pages but **not** `sic_code`, so sectors need one detail call per stock — 5,686 of them, since ETFs are classified by `type` alone. Measured throughput is erratic (5–110 calls/s depending on burst state); the full build took 110s at 16 workers. About 23% of stocks return no SIC code and land in an `Unknown` tab.
+
+Resulting buckets across the wide universe: ETFs 5,324, Unknown 1,302, Health Care 899, Industrials 820, Financials 780, Technology 563, Consumer Discretionary 366, Real Estate 239, Materials 203, Energy 164, Communication Services 143, Consumer Staples 120, Utilities 87.
+
+**Two grouped-daily calls cover the entire universe** — `/v2/aggs/grouped/locale/us/market/stocks/{date}` returns ~12,400 tickers in one 1.35 MB response (0.72s). Returns are computed from the window's start and end sessions, so switching sector tabs and re-sorting cost zero API calls. Weekends and holidays come back empty, so the date walk steps backward until it lands on a session.
+
+**Sector labels use a second mapping, not the pipeline's.** `sic_to_display_sector()` in `fetch_sectors.py` regroups the same SIC codes into 11 GICS-like buckets, because the SIC *divisions* used by `sic_to_sector()` are unusable for browsing: they place AAPL and NVDA under "Manufacturing" next to XOM and JNJ, MSFT and GOOGL under "Services", AMZN under "Retail", with 201 of 503 names in one bucket. Both mappings are kept deliberately — `sic_to_sector()` is what the sector-neutral processor and every logged experiment used, so changing it would silently invalidate past results.
+
+SIC alone cannot finish the job: code 7389 ("Services–Business Services, NEC") holds 16 S&P names spanning four GICS sectors — MA/PYPL/FIS/GPN (payments), ACN/BR/MSCI/FICO (consulting and data), AKAM (tech), EBAY/DASH (consumer). A ~20-entry `SECTOR_OVERRIDES` table resolves those by ticker. Resulting buckets: Industrials 117, Technology 70, Health Care 58, Financials 47, Consumer Discretionary 46, Utilities 32, Materials 31, Real Estate 31, Consumer Staples 30, Energy 20, Communication Services 18.
+
+**Two data hazards, both handled:**
+
+| Hazard | Detail | Handling |
+|---|---|---|
+| Grouped feed has a shorter window than per-ticker aggregates | Verified OK at 2021-11-01, `NOT_AUTHORIZED` at 2021-08-02, while per-ticker minute bars reach 2021-08-02 | MAX clamps to the earliest served session and the response sets `clamped: true`, surfaced in the UI |
+| **Ticker symbols are not stable identifiers** | On 2021-08-31 `META` closed at $15.11 — that was Meta Materials, a penny stock. Facebook traded as `FB` until 2022-06-09. Ranking across the rename produced a bogus **+3584%** for META over MAX. 555 of 11,010 tickers have taken their symbol over from a different one | `took_ticker_on` in `sectors_all.csv` records the date; the leaderboard drops any symbol whose takeover falls inside the window. 37 excluded at MAX over all stocks, 16 at MAX over the S&P, 0 at 1D; the count is reported in the response and shown above the table |
+
+The rename rule is deliberately narrow. Polygon's event history also contains share-class base tickers (`BRK` for BRK.B, `GOOG` for GOOGL) and short-lived placeholders (`CASYV`, `MPWRE`, `HONI`) that do not mean the company changed — a first attempt keyed on "symbol in use at the window start" wrongly dropped 8 names from even the 1D board. Note the SDK returns ticker events as plain dicts, not model objects.
+
+It is computed in the backfill rather than at request time deliberately: it needs one events call per ticker, which was tolerable for 503 S&P names but not for 11,010 inside a web request.
+
+Alternative not taken: *stitching* a renamed company's history across its old symbol (fetching FB's bars for the pre-2022 part of META's window). More faithful than excluding, but it needs a per-ticker history walk; excluding is the conservative default.
+
 ---
 
 ## Data
@@ -141,7 +247,8 @@ The actual entitlements on this tier substantially exceed what the published fea
 | **Prices** | | | |
 | Daily aggregates | `/v2/aggs/.../day/...` | 5y rolling | 🔥🔥🔥 currently in use |
 | Hour aggregates | `/v2/aggs/.../hour/...` | 5y rolling | 🔥🔥 intraday signals |
-| **Minute aggregates** | `/v2/aggs/.../minute/...` | **5y+ rolling (verified)** | 🔥🔥🔥 **major hidden value** — VWAP execution, opening drift |
+| **Minute aggregates** | `/v2/aggs/.../minute/...` | **5y rolling — earliest 2021-08-02, re-verified 2026-08-01** | 🔥🔥🔥 **major hidden value** — VWAP execution, opening drift. Includes pre/post-market: bars span **04:00–19:59 ET**, ~849/day |
+| Second aggregates | `/v2/aggs/.../second/...` | Same 5y rolling window | 🔥 finer than needed for swing horizons; useful for execution studies |
 | Snapshot | `/v2/snapshot/...` | EOD + 15m delayed intraday | 🔥🔥 daily pre-market state |
 | **Fundamentals** | | | |
 | **Stock Financials** | `/vX/reference/financials` | Quarterly + TTM, ~5y | 🔥🔥🔥 **49 line items** (23 income, 18 balance sheet, 8 cash flow, 5 comprehensive) |
@@ -207,7 +314,7 @@ The actual entitlements on this tier substantially exceed what the published fea
 |---|---|---|
 | **Survivorship bias** | High. Universe = *current* S&P 500, not historical constituents. Backtests overestimate alpha because we miss companies that were dropped (often after underperformance). | Accept for now; upgrade to Polygon's historical-constituents API or Tiingo if results merit. |
 | **Short history (5y)** | Models trained only on post-COVID + AI rally regime. Cannot validate against 2008 GFC, 2020 COVID crash, or pre-ZIRP rate environments. | Plan: subscribe to Tiingo ($10/mo) once a working strategy is identified, retrain on 10–30y. |
-| **No intraday data** | Cannot compute open-to-open returns or VWAP execution. All trades modeled at close. | Acceptable for swing strategy. Polygon Advanced ($79/mo) adds real-time if needed. |
+| **No intraday data stored** | Cannot compute open-to-open returns or VWAP execution. All trades modeled at close. Minute bars *are* entitled (see capability inventory) but nothing on disk holds them — backfilling the universe would be ~530M rows (849 bars × 1241 days × 506 tickers). | Acceptable for swing strategy. The `viz/` app fetches minute bars on demand and caches only what is viewed; a modeling backfill would need a narrower ticker/date slice. |
 | **Adjustment timing** | Polygon back-adjusts on split/dividend events. Means historical CSVs may shift slightly when re-downloaded. | Re-download incrementally; accept minor lookback inconsistencies. |
 
 ---
